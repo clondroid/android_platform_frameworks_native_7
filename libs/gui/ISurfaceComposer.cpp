@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +20,8 @@
 
 #include <stdint.h>
 #include <sys/types.h>
+
+#include <sys/system_properties.h>
 
 #include <binder/Parcel.h>
 #include <binder/IMemory.h>
@@ -58,8 +61,24 @@ public:
 
     virtual sp<ISurfaceComposerClient> createConnection()
     {
+        int ret = -1, containerId;
+	char value[PROP_VALUE_MAX];
+
+	ret = __system_property_get("ro.boot.container.id", value);
+	if (ret <= 0)    { // 0 for undefined
+	    containerId = 0;
+	} else    {    
+	    containerId = atoi(value);
+	}
+
+        return createConnection2(containerId);
+    }
+
+    virtual sp<ISurfaceComposerClient> createConnection2(int containerId)
+    {   
         Parcel data, reply;
         data.writeInterfaceToken(ISurfaceComposer::getInterfaceDescriptor());
+        data.writeInt32(containerId);
         remote()->transact(BnSurfaceComposer::CREATE_CONNECTION, data, &reply);
         return interface_cast<ISurfaceComposerClient>(reply.readStrongBinder());
     }
@@ -362,6 +381,13 @@ public:
         return reply.readInt32();
     }
 
+    virtual void containerFocusChanged(int32_t focusedContainer)    {
+        Parcel data, reply;
+	data.writeInterfaceToken(ISurfaceComposer::getInterfaceDescriptor());
+	data.writeInt32(focusedContainer);
+	remote()->transact(BnSurfaceComposer::CONTAINER_FOCUS_CHANGED, data, &reply);
+    }
+
     virtual status_t getHdrCapabilities(const sp<IBinder>& display,
             HdrCapabilities* outCapabilities) const {
         Parcel data, reply;
@@ -399,7 +425,8 @@ status_t BnSurfaceComposer::onTransact(
     switch(code) {
         case CREATE_CONNECTION: {
             CHECK_INTERFACE(ISurfaceComposer, data, reply);
-            sp<IBinder> b = IInterface::asBinder(createConnection());
+            int containerId = data.readInt32();
+            sp<IBinder> b = IInterface::asBinder(createConnection2(containerId));
             reply->writeStrongBinder(b);
             return NO_ERROR;
         }
@@ -635,6 +662,12 @@ status_t BnSurfaceComposer::onTransact(
             }
             return NO_ERROR;
         }
+        case CONTAINER_FOCUS_CHANGED: {
+            CHECK_INTERFACE(ISurfaceComposer, data, reply);
+            int32_t focusedContainer = data.readInt32();
+            containerFocusChanged(focusedContainer);
+            return NO_ERROR;
+	}
         default: {
             return BBinder::onTransact(code, data, reply, flags);
         }

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -375,6 +376,9 @@ public:
     virtual void vibrate(int32_t deviceId, const nsecs_t* pattern, size_t patternSize,
             ssize_t repeat, int32_t token) = 0;
     virtual void cancelVibrate(int32_t deviceId, int32_t token) = 0;
+
+    // For container focus
+    virtual void setContainerFocused(uint8_t focused) = 0;
 };
 
 struct StylusState {
@@ -475,6 +479,9 @@ public:
             ssize_t repeat, int32_t token);
     virtual void cancelVibrate(int32_t deviceId, int32_t token);
 
+    // Sting: for container focus
+    virtual void setContainerFocused(uint8_t focused);
+
 protected:
     // These members are protected so they can be instrumented by test cases.
     virtual InputDevice* createDeviceLocked(int32_t deviceId, int32_t controllerNumber,
@@ -542,6 +549,9 @@ private:
 
     int32_t mGeneration;
     int32_t bumpGenerationLocked();
+
+    // Sting: for container focus
+    int mContainerFocused;
 
     void getInputDevicesLocked(Vector<InputDeviceInfo>& outInputDevices);
 

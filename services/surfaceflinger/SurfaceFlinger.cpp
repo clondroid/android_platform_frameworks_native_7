@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -124,6 +125,68 @@ const String16 sAccessSurfaceFlinger("android.permission.ACCESS_SURFACE_FLINGER"
 const String16 sReadFramebuffer("android.permission.READ_FRAME_BUFFER");
 const String16 sDump("android.permission.DUMP");
 
+/*
+static inline int getContainerId()    {    
+    int ret = -1;
+    char value[PROP_VALUE_MAX];
+    
+    ret = __system_property_get("ro.boot.container.id", value);
+    if (ret <= 0)    { // 0 for undefined
+        return 0;
+    } else    {    
+        return atoi(value);
+    }    
+}
+
+static inline bool isVMIProject()    {
+    int ret = -1;
+    char value[PROP_VALUE_MAX];
+     
+    ret = __system_property_get("ro.boot.vmi", value);
+    if (ret <= 0)    { // 0 for undefined
+	return false;
+    } else    {
+        if(0 == strcmp(value, "true"))
+	    return true;
+	else
+	    return false;
+    }
+}
+*/
+
+static inline int containerVirtualDisplay(uint32_t displayLayerStack)    {
+    if(((DisplayDevice::CONTAINER_LAYER_STACK & displayLayerStack) != 0) &&
+       (displayLayerStack != DisplayDevice::NO_LAYER_STACK))    {
+	return displayLayerStack & (~DisplayDevice::CONTAINER_LAYER_STACK);
+    }
+
+    return -1;
+}
+
+static inline int filterLayer(int layerContainerId, uint32_t layerLayerStack,
+        uint32_t displayLayerStack, int focusedContainer)    {
+    int dcId = containerVirtualDisplay(displayLayerStack);
+
+    if(displayLayerStack == 0)    {
+	// probably primary display
+	// primary display displays the contents of focused container
+        if(layerContainerId != focusedContainer)
+	    return 1;
+    } else if(dcId >= 0)    {    
+        if(dcId != layerContainerId)    {
+            return 2;
+	} else if(focusedContainer == dcId)    {
+	    // primary display displays the contents of focused container
+	    return 3;
+        }
+    } else    {
+	if(layerLayerStack != displayLayerStack)
+	    return 4;
+    }
+
+    return 0;
+}
+
 // ---------------------------------------------------------------------------
 
 SurfaceFlinger::SurfaceFlinger()
@@ -214,10 +277,17 @@ void SurfaceFlinger::binderDied(const wp<IBinder>& /* who */)
 
 sp<ISurfaceComposerClient> SurfaceFlinger::createConnection()
 {
+    ALOGW("createConnection: caller's container ID is unknown....");
+    return createConnection2(0);
+}
+
+sp<ISurfaceComposerClient> SurfaceFlinger::createConnection2(int containerId)
+{
     sp<ISurfaceComposerClient> bclient;
     sp<Client> client(new Client(this));
     status_t err = client->initCheck();
     if (err == NO_ERROR) {
+        client->containerId = containerId;
         bclient = client;
     }
     return bclient;
@@ -825,6 +895,23 @@ status_t SurfaceFlinger::getAnimationFrameStats(FrameStats* outStats) const {
     return NO_ERROR;
 }
 
+void SurfaceFlinger::containerFocusChanged(int32_t focusedContainer)    {
+    Mutex::Autolock _l(mStateLock);
+
+    if(mFocusedContainer != focusedContainer)    { // focused container changed
+        mVisibleRegionsDirty = true;
+        mFocusedContainer = focusedContainer;
+
+	//setPowerMode(mBuiltinDisplays[DisplayDevice::DISPLAY_PRIMARY],
+	//             HWC_POWER_MODE_OFF);
+	//setPowerMode(mBuiltinDisplays[DisplayDevice::DISPLAY_PRIMARY],
+        //             HWC_POWER_MODE_NORMAL);
+
+	mForceFlashRegion = 1;
+	signalRefresh();
+    }
+}
+
 status_t SurfaceFlinger::getHdrCapabilities(const sp<IBinder>& display,
         HdrCapabilities* outCapabilities) const {
     Mutex::Autolock _l(mStateLock);
@@ -1060,6 +1147,9 @@ void SurfaceFlinger::handleMessageRefresh() {
     rebuildLayerStacks();
     setUpHWComposer();
     doDebugFlashRegions();
+
+    doForceFlashRegions();
+
     doComposition();
     postComposition(refreshStartTime);
 
@@ -1077,6 +1167,18 @@ void SurfaceFlinger::handleMessageRefresh() {
         layer->releasePendingBuffer();
     }
     mLayersWithQueuedFrames.clear();
+}
+
+/**
+ * This function should be unnecessary, case
+ * clients are forced compositing in setUpHWComposer
+ */
+void SurfaceFlinger::doForceFlashRegions()
+{
+    if (CC_LIKELY(!mForceFlashRegion))
+        return;
+ 
+    mForceFlashRegion = 0;
 }
 
 void SurfaceFlinger::doDebugFlashRegions()
@@ -1236,21 +1338,23 @@ void SurfaceFlinger::rebuildLayerStacks() {
                         opaqueRegion);
 
                 const size_t count = layers.size();
+                const uint32_t displayLayerStack = displayDevice->getLayerStack();
                 for (size_t i=0 ; i<count ; i++) {
                     const sp<Layer>& layer(layers[i]);
                     const Layer::State& s(layer->getDrawingState());
-                    if (s.layerStack == displayDevice->getLayerStack()) {
-                        Region drawRegion(tr.transform(
-                                layer->visibleNonTransparentRegion));
-                        drawRegion.andSelf(bounds);
-                        if (!drawRegion.isEmpty()) {
-                            layersSortedByZ.add(layer);
-                        } else {
-                            // Clear out the HWC layer if this layer was
-                            // previously visible, but no longer is
-                            layer->setHwcLayer(displayDevice->getHwcDisplayId(),
-                                    nullptr);
-                        }
+		    if(filterLayer(layer->containerId, s.layerStack,
+		                   displayLayerStack, mFocusedContainer))
+		        continue;
+
+                    Region drawRegion(tr.transform(
+                            layer->visibleNonTransparentRegion));
+                    drawRegion.andSelf(bounds);
+                    if (!drawRegion.isEmpty()) {
+                        layersSortedByZ.add(layer);
+                    } else {
+                        // Clear out the HWC layer if this layer was
+                        // previously visible, but no longer is
+                        layer->setHwcLayer(displayDevice->getHwcDisplayId(), nullptr);
                     }
                 }
             }
@@ -1319,7 +1423,8 @@ void SurfaceFlinger::setUpHWComposer() {
                     }
 
                     layer->setGeometry(displayDevice);
-                    if (mDebugDisableHWC || mDebugRegion) {
+                    if (mDebugDisableHWC || mDebugRegion || mForceFlashRegion) {
+			// TODO: I don't know why this is a must when switching focused container
                         layer->forceClientComposition(hwcId);
                     }
                 }
@@ -1808,9 +1913,16 @@ void SurfaceFlinger::computeVisibleRegions(
         // start with the whole surface at its current location
         const Layer::State& s(layer->getDrawingState());
 
-        // only consider the layers on the given layer stack
-        if (s.layerStack != layerStack)
-            continue;
+	// TODO: consider other valid virtual displays...
+	// container filtering....
+	if(filterLayer(layer->containerId, s.layerStack, layerStack, mFocusedContainer))
+	    continue;
+        
+	/* moved into to filterLayer 
+	 * only consider the layers on the given layer stack
+	if(s.layerStack != layerStack))
+	    continue;
+	 */
 
         /*
          * opaqueRegion: area of a surface that is fully opaque.
@@ -2521,6 +2633,7 @@ status_t SurfaceFlinger::createNormalLayer(const sp<Client>& client,
     *outLayer = new Layer(this, client, name, w, h, flags);
     status_t err = (*outLayer)->setBuffers(w, h, format, flags);
     if (err == NO_ERROR) {
+	(*outLayer)->containerId = client->containerId;
         *handle = (*outLayer)->getHandle();
         *gbp = (*outLayer)->getProducer();
     }
@@ -2534,6 +2647,7 @@ status_t SurfaceFlinger::createDimLayer(const sp<Client>& client,
         sp<IBinder>* handle, sp<IGraphicBufferProducer>* gbp, sp<Layer>* outLayer)
 {
     *outLayer = new LayerDim(this, client, name, w, h, flags);
+    (*outLayer)->containerId = client->containerId;
     *handle = (*outLayer)->getHandle();
     *gbp = (*outLayer)->getProducer();
     return NO_ERROR;

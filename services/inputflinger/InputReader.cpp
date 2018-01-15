@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -258,7 +259,7 @@ InputReader::InputReader(const sp<EventHubInterface>& eventHub,
         const sp<InputReaderPolicyInterface>& policy,
         const sp<InputListenerInterface>& listener) :
         mContext(this), mEventHub(eventHub), mPolicy(policy),
-        mGlobalMetaState(0), mGeneration(1),
+        mGlobalMetaState(0), mGeneration(1), mContainerFocused(0),
         mDisableVirtualKeysTimeout(LLONG_MIN), mNextTimeout(LLONG_MAX),
         mConfigurationChangesToRefresh(0) {
     mQueuedListener = new QueuedInputListener(listener);
@@ -281,6 +282,23 @@ void InputReader::loopOnce() {
     int32_t oldGeneration;
     int32_t timeoutMillis;
     bool inputDevicesChanged = false;
+
+    /** for container focus *
+    if(!mContainerFocused)    {
+
+	usleep(1600000); // sellp for 1.6 second (1600000 microsecond)
+
+        mLock.lock();
+
+	// to prevent watchdog from killing system server
+	mReaderIsAliveCondition.broadcast();
+
+        mLock.unlock();
+
+	return;
+    }
+     */
+
     Vector<InputDeviceInfo> inputDevices;
     { // acquire lock
         AutoMutex _l(mLock);
@@ -357,7 +375,8 @@ void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
 #if DEBUG_RAW_EVENTS
             ALOGD("BatchSize: %d Count: %d", batchSize, count);
 #endif
-            processEventsForDeviceLocked(deviceId, rawEvent, batchSize);
+            if(mContainerFocused) // for Container focus
+                processEventsForDeviceLocked(deviceId, rawEvent, batchSize);
         } else {
             switch (rawEvent->type) {
             case EventHubInterface::DEVICE_ADDED:
@@ -785,6 +804,11 @@ void InputReader::cancelVibrate(int32_t deviceId, int32_t token) {
         InputDevice* device = mDevices.valueAt(deviceIndex);
         device->cancelVibrate(token);
     }
+}
+
+// For container focus
+void InputReader::setContainerFocused(uint8_t focused)    {
+    mContainerFocused = (int)focused;
 }
 
 void InputReader::dump(String8& dump) {

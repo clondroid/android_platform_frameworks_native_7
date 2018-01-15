@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2006 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -74,6 +75,11 @@ public:
      * ACCESS_SURFACE_FLINGER permission
      */
     virtual sp<ISurfaceComposerClient> createConnection() = 0;
+
+    /* create connection with surface flinger,
+     * containerId is the caller's container ID
+     */
+    virtual sp<ISurfaceComposerClient> createConnection2(int containerId) = 0;
 
     /* create a graphic buffer allocator
      */
@@ -171,6 +177,9 @@ public:
      */
     virtual status_t getHdrCapabilities(const sp<IBinder>& display,
             HdrCapabilities* outCapabilities) const = 0;
+
+    /* for container focus changed called from WindowManager */
+    virtual void containerFocusChanged(int32_t focusdContainer) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -202,6 +211,9 @@ public:
         GET_DISPLAY_COLOR_MODES,
         GET_ACTIVE_COLOR_MODE,
         SET_ACTIVE_COLOR_MODE,
+
+        // for container focus 
+	CONTAINER_FOCUS_CHANGED = 25,
     };
 
     virtual status_t onTransact(uint32_t code, const Parcel& data,

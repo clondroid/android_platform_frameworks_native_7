@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -150,6 +151,7 @@ private:
     friend class DisplayEventConnection;
     friend class Layer;
     friend class MonitoredProducer;
+    friend class HWComposer; // for mContainerFocused access in fbPost
 
     // This value is specified in number of frames.  Log frame stats at most
     // every half hour.
@@ -204,6 +206,7 @@ private:
      * ISurfaceComposer interface
      */
     virtual sp<ISurfaceComposerClient> createConnection();
+    virtual sp<ISurfaceComposerClient> createConnection2(int containerId);
     virtual sp<IGraphicBufferAlloc> createGraphicBufferAlloc();
     virtual sp<IBinder> createDisplay(const String8& displayName, bool secure);
     virtual void destroyDisplay(const sp<IBinder>& display);
@@ -235,6 +238,8 @@ private:
     virtual status_t getHdrCapabilities(const sp<IBinder>& display,
             HdrCapabilities* outCapabilities) const;
 
+    virtual void containerFocusChanged(int32_t focusedContainer);
+    
     /* ------------------------------------------------------------------------
      * DeathRecipient interface
      */
@@ -405,7 +410,8 @@ private:
      * Compositing
      */
     void invalidateHwcGeometry();
-    static void computeVisibleRegions(
+    //static void computeVisibleRegions
+    void computeVisibleRegions(
             const LayerVector& currentLayers, uint32_t layerStack,
             Region& dirtyRegion, Region& opaqueRegion);
 
@@ -461,6 +467,13 @@ private:
 
     bool getFrameTimestamps(const Layer& layer, uint64_t frameNumber,
             FrameTimestamps* outTimestamps);
+
+    /* ------------------------------------------------------------------------
+     * Container
+     */
+    void doForceFlashRegions();
+    int  mFocusedContainer = 0;
+    int  mForceFlashRegion = 0;
 
     /* ------------------------------------------------------------------------
      * Attributes

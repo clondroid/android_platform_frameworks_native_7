@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/system_properties.h>
 
 #include "binder.h"
 
@@ -97,6 +98,9 @@ struct binder_state *binder_open(size_t mapsize)
 {
     struct binder_state *bs;
     struct binder_version vers;
+    int ret = -1, in_container = 0;
+    char value[PROP_VALUE_MAX];
+    char path[PROP_VALUE_MAX];
 
     bs = malloc(sizeof(*bs));
     if (!bs) {
@@ -104,7 +108,19 @@ struct binder_state *binder_open(size_t mapsize)
         return NULL;
     }
 
-    bs->fd = open("/dev/binder", O_RDWR | O_CLOEXEC);
+    // for container
+    ret = __system_property_get("ro.boot.container.id", value);
+    if (ret <= 0)    { // zeor or undefined
+        in_container = 0;
+    } else    {
+        in_container = atoi(value);
+    }
+
+    if(in_container)    {
+        sprintf(path, "/dev/conbinder%d", in_container);
+	bs->fd = open(path, O_RDWR);
+    } else
+	bs->fd = open("/dev/binder", O_RDWR);
     if (bs->fd < 0) {
         fprintf(stderr,"binder: cannot open device (%s)\n",
                 strerror(errno));

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2005 The Android Open Source Project
+ * Copyright (C) 2015-2017 The Android Container Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +41,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/types.h>
+#include <sys/system_properties.h>
 
 #define BINDER_VM_SIZE ((1*1024*1024) - (4096 *2))
 #define DEFAULT_MAX_BINDER_THREADS 15
@@ -311,7 +312,27 @@ void ProcessState::giveThreadPoolName() {
 
 static int open_driver()
 {
-    int fd = open("/dev/binder", O_RDWR | O_CLOEXEC);
+    int ret = -1, in_container;
+    const char *binder_device;
+    char value[PROP_VALUE_MAX];
+    char path[PROP_VALUE_MAX];
+
+    ret = __system_property_get("ro.boot.container.id", value);
+    if (ret <= 0)    { // 0 or undefined
+	in_container = 0;
+    } else    {
+	in_container = atoi(value);
+    }
+
+    if(in_container)    {
+        sprintf(path, "/dev/conbinder%d", in_container);
+        binder_device = path;
+    } else    {
+        binder_device = "/dev/binder";
+    }
+
+    //int fd = open("/dev/binder", O_RDWR | O_CLOEXEC);
+    int fd = open(binder_device, O_RDWR | O_CLOEXEC);
     if (fd >= 0) {
         int vers = 0;
         status_t result = ioctl(fd, BINDER_VERSION, &vers);
@@ -331,7 +352,7 @@ static int open_driver()
             ALOGE("Binder ioctl to set max threads failed: %s", strerror(errno));
         }
     } else {
-        ALOGW("Opening '/dev/binder' failed: %s\n", strerror(errno));
+        ALOGW("Opening '%s' failed: %s\n", binder_device, strerror(errno));
     }
     return fd;
 }
