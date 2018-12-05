@@ -109,7 +109,8 @@ struct binder_state *binder_open(size_t mapsize)
     }
 
     // for container
-    ret = __system_property_get("ro.boot.container.id", value);
+    //ret = __system_property_get("ro.boot.container.id", value);
+      ret = __system_property_get("ro.container.id",value);  //modify by moto
     if (ret <= 0)    { // zeor or undefined
         in_container = 0;
     } else    {
