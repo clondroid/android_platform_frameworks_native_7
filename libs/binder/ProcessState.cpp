@@ -46,6 +46,8 @@
 #define BINDER_VM_SIZE ((1*1024*1024) - (4096 *2))
 #define DEFAULT_MAX_BINDER_THREADS 15
 
+#include <cutils/properties.h>
+
 // -------------------------------------------------------------------------
 
 namespace android {
@@ -317,7 +319,8 @@ static int open_driver()
     char value[PROP_VALUE_MAX];
     char path[PROP_VALUE_MAX];
 
-    ret = __system_property_get("ro.boot.container.id", value);
+	// ret = __system_property_get("ro.boot.container.id", value); 2018/11/28 modify by Daniel
+    ret = property_get_int32("ro.boot.container.id", 0);
     if (ret <= 0)    { // 0 or undefined
 	in_container = 0;
     } else    {
